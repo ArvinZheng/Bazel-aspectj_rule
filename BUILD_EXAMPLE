@@ -1,0 +1,17 @@
+load("aspectj_rule.bzl", "aspectj_library")
+
+SERVICE_DEPS = [
+    # list all dependencies here
+]
+
+aspectj_library(
+    name = "aspectj_compiled_lib",
+    ajc_main_class = "org.aspectj.tools.ajc.Main",
+    ajc_opts = "-1.8 -encoding UTF-8 -showWeaveInfo -source 1.8 -target 1.8 -verbose",
+    aspect_libs = [
+        // list all the libraries that you are going to use for the aspectj command
+    ],
+    aspectj_tools = "aspectjtools target",
+    input_jar = "the jar target you want to run aspectj on",
+    deps = SERVICE_DEPS,
+)

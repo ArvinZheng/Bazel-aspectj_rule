@@ -1,2 +1,2 @@
 # Bazel-aspectj_rule
-running aspectj in bazel
+This bazel rule is created to run aspectj for jar file in bazel

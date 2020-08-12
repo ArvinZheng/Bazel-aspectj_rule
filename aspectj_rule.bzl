@@ -1,22 +1,27 @@
 def _aspectj_library_impl(ctx):
     class_jar = ctx.outputs.class_jar
 
-    compile_time_jars = depset(order = "topological")
-    runtime_jars = depset(order = "topological")
+    compile_time_jars_transitive = []
+    runtime_jars_transitive = []
+    exported_java_infos = []
     for dep in ctx.attr.deps:
-        compile_time_jars = depset(
-            transitive = [compile_time_jars, dep[JavaInfo].transitive_compile_time_jars],
-        )
-        runtime_jars = depset(
-            transitive = [runtime_jars, dep[JavaInfo].transitive_runtime_jars],
-        )
+        compile_time_jars_transitive += [dep[JavaInfo].transitive_compile_time_jars]
+        runtime_jars_transitive += [dep[JavaInfo].transitive_runtime_jars]
+        exported_java_infos.append(dep[JavaInfo])
+    compile_time_jars = depset(
+        transitive = compile_time_jars_transitive,
+    )
+    runtime_jars = depset(
+        transitive = runtime_jars_transitive,
+    )
     compile_time_jars_list = compile_time_jars.to_list()
 
-    aspect_libs_jars = depset(order = "topological")
+    aspect_libs_jars_transitive = []
     for lib in ctx.attr.aspect_libs:
-        aspect_libs_jars = depset(
-            transitive = [aspect_libs_jars, lib[JavaInfo].compile_jars],
-        )
+        aspect_libs_jars_transitive += [lib[JavaInfo].compile_jars]
+    aspect_libs_jars = depset(
+        transitive = aspect_libs_jars_transitive,
+    )
 
     # Cleaning build output directory
     build_output = class_jar.path + ".build_output"
@@ -27,21 +32,31 @@ def _aspectj_library_impl(ctx):
     java_tools = "%s/lib/tools.jar" % java_runtime.java_home
 
     aspectj_tools_path = ctx.attr.aspectj_tools[JavaInfo].outputs.jars[0].class_jar.path
-    ajc = java_path + " -cp " + java_tools + ctx.configuration.host_path_separator + aspectj_tools_path + " " + ctx.attr._xmx + " " + ctx.attr.ajc_main_class
+    cp = ctx.configuration.host_path_separator.join([
+        java_tools,
+        aspectj_tools_path,
+    ])
 
-    cmd += ajc
+    # Building ajc parameters
+    ajc_main_class = "org.aspectj.tools.ajc.Main"
+    ajc_params = [java_path, "-cp", cp, ctx.attr._xmx, ajc_main_class]
 
     if ctx.attr.ajc_opts:
-        cmd += " " + ctx.attr.ajc_opts + " "
+        ajc_params.append(ctx.attr.ajc_opts)
     if compile_time_jars:
-        cmd += " -classpath " + cmd_helper.join_paths(ctx.configuration.host_path_separator, compile_time_jars)
+        ajc_params.append("-classpath")
+        ajc_params.append(cmd_helper.join_paths(ctx.configuration.host_path_separator, compile_time_jars))
 
-    aspect_path = " -aspectpath " + cmd_helper.join_paths(ctx.configuration.host_path_separator, aspect_libs_jars)
-    cmd += aspect_path
-    cmd += " -inpath "
+    ajc_params.append("-aspectpath")
+    ajc_params.append(cmd_helper.join_paths(ctx.configuration.host_path_separator, aspect_libs_jars))
+    ajc_params.append("-inpath")
     for javaoutput in ctx.attr.input_jar[JavaInfo].outputs.jars:
-        cmd += javaoutput.class_jar.path
-    cmd += " -outjar " + class_jar.path
+        ajc_params.append(javaoutput.class_jar.path)
+    ajc_params.append("-outjar")
+    ajc_params.append(class_jar.path)
+
+    ajc = " ".join(ajc_params)
+    cmd += ajc
 
     ctx.actions.run_shell(
         inputs = (compile_time_jars_list + ctx.files._jdk + ctx.files.input_jar),
@@ -63,6 +78,7 @@ def _aspectj_library_impl(ctx):
         JavaInfo(
             output_jar = class_jar,
             compile_jar = class_jar,
+            exports = exported_java_infos,
         ),
     ]
 
@@ -83,10 +99,6 @@ aspectj_library = rule(
         "aspectj_tools": attr.label(
             mandatory = True,
             allow_files = [".jar"],
-        ),
-        "ajc_main_class": attr.string(
-            mandatory = True,
-            doc = "the full path of the main class of aspectj tools",
         ),
         "ajc_opts": attr.string(
             mandatory = False,
